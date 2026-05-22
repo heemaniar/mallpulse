@@ -119,7 +119,8 @@ tenant_key = {
 
 raw['mall_id']    = raw['shopping_mall'].map(mall_name_to_id)
 raw['tenant_id']  = raw.apply(lambda r: tenant_key.get((r['mall_id'], r['category'])), axis=1)
-raw['total_amount'] = raw['quantity'] * raw['price']
+raw['total_amount'] = (raw['quantity'] * raw['price']).round(2)
+raw['price']        = raw['price'].round(2)
 
 fact_transactions = raw.rename(columns={'price': 'unit_price', 'invoice_date': 'date'})[[
     'invoice_no', 'tenant_id', 'mall_id', 'customer_id', 'date',
