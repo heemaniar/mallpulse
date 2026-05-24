@@ -222,6 +222,59 @@ dim_tenant = pd.DataFrame(tenants)
 dim_tenant.to_csv(DATA / 'dim_tenant.csv', index=False)
 print(f"  dim_tenant.csv: {len(dim_tenant)} rows")
 
+# ── 3b) Seasonal date resampling ─────────────────────────────────────────────
+# The source CSV dates are uniformly distributed (synthetic origin) — every day
+# of the week and every month appears with equal probability. That kills any
+# seasonality signal, making ARIMA_PLUS produce a flat forecast.
+#
+# Fix: reassign invoice_date per mall using a probability distribution that
+# reflects real Istanbul mall behaviour:
+#   • Weekends (Sat/Sun) : +40% weight over weekdays (leisure browsing)
+#   • Turkish public holidays: ×1.50 additional multiplier
+#   • Monthly pattern: Dec +30% (gifts/NYE), Nov +15% (early winter),
+#                      Jan +10% (post-holiday clearance), Jul/Aug −15% (heat)
+#
+# Only the date is redistributed; transaction amounts, customers, and tenant
+# assignments are untouched. Random seed (42) is set globally → reproducible.
+print("  Resampling invoice_date with seasonal weights...")
+_tr_hols    = set(holidays.TR(years=range(2021, 2024)).keys())
+_date_spine = pd.date_range('2021-01-01', '2023-03-08', freq='D')
+
+_MONTH_MULT = {
+    1: 1.10,   # January  — clearance sales
+    2: 0.90,   # February — quiet shoulder month
+    3: 0.95,   # March
+    4: 1.00,
+    5: 1.00,
+    6: 0.95,
+    7: 0.85,   # July  — summer heat, Istanbulites leave the city
+    8: 0.85,   # August
+    9: 1.00,
+    10: 1.05,  # October — back-to-school tail
+    11: 1.15,  # November — early winter + Black Friday
+    12: 1.30,  # December — gift season / New Year's Eve
+}
+
+def _date_wt(d: pd.Timestamp) -> float:
+    w = _MONTH_MULT[d.month]
+    if d.weekday() >= 5:      w *= 1.40   # Sat/Sun
+    if d.date() in _tr_hols:  w *= 1.50   # Turkish public holiday
+    return w
+
+_wts = np.array([_date_wt(d) for d in _date_spine], dtype=float)
+_wts /= _wts.sum()
+
+for _mall in raw['shopping_mall'].unique():
+    _idx     = raw[raw['shopping_mall'] == _mall].index
+    _sampled = np.random.choice(len(_date_spine), size=len(_idx), replace=True, p=_wts)
+    raw.loc[_idx, 'invoice_date'] = _date_spine[_sampled]
+
+# Verify the redistribution worked
+_dow_dist = raw.groupby(raw['invoice_date'].dt.day_name()).size()
+_weekend_share = (_dow_dist.get('Saturday', 0) + _dow_dist.get('Sunday', 0)) / len(raw)
+print(f"    Weekend share after resampling: {_weekend_share:.1%} (expected ~27–30%)")
+del _tr_hols, _date_spine, _MONTH_MULT, _wts
+
 # ── 4) fact_transactions — map raw rows to tenant/mall IDs ──────────────────
 mall_name_to_id = dict(zip(dim_mall['mall_name'], dim_mall['mall_id']))
 tenant_key = {
@@ -231,10 +284,13 @@ tenant_key = {
 
 raw['mall_id']    = raw['shopping_mall'].map(mall_name_to_id)
 raw['tenant_id']  = raw.apply(lambda r: tenant_key.get((r['mall_id'], r['category'])), axis=1)
-raw['total_amount'] = (raw['quantity'] * raw['price']).round(2)
-raw['price']        = raw['price'].round(2)
 
-fact_transactions = raw.rename(columns={'price': 'unit_price', 'invoice_date': 'date'})[[
+# NOTE: the source CSV 'price' column is the LINE TOTAL (quantity × unit_price),
+# not the unit price. Back-derive unit_price by dividing.
+raw['total_amount'] = raw['price'].round(2)
+raw['unit_price']   = (raw['price'] / raw['quantity']).round(2)
+
+fact_transactions = raw.rename(columns={'invoice_date': 'date'})[[
     'invoice_no', 'tenant_id', 'mall_id', 'customer_id', 'date',
     'category', 'quantity', 'unit_price', 'total_amount', 'payment_method',
 ]]

@@ -1,8 +1,19 @@
 """
-agents/mallpulse/agent.py — MallPulse root agent.
+agents/mallpulse/agent.py — MallPulse root orchestrator agent.
 
 ADK discovery entry point. ADK adds agents/ to sys.path, so we
 explicitly add the project root so that tools/ is importable.
+
+Architecture
+------------
+root (mallpulse)
+├─ AgentTool(data_unifier)       — factual data: revenue, traffic, weather
+├─ AgentTool(tenant_diagnoser)   — tenant health, lease risk, rent-to-sales
+└─ AgentTool(action_recommender) — forecasts + prioritised GM actions
+
+The root classifies the intent and delegates to the right specialist(s).
+It may call multiple specialists for compound questions (e.g. "diagnose
+Kanyon and tell me what to do next"), then synthesises their answers.
 
 Local dev:
     adk web agents/          ← browser UI at localhost:8000
@@ -21,9 +32,12 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from google.adk.agents import Agent
-from tools.bigquery_tools import (
-    query_warehouse, get_mall_summary, get_top_tenants,
-    forecast_mall_revenue, SCHEMA,
+from google.adk.tools import AgentTool
+
+from agents.mallpulse.sub_agents import (
+    data_unifier,
+    tenant_diagnoser,
+    action_recommender,
 )
 
 root_agent = Agent(
@@ -31,50 +45,47 @@ root_agent = Agent(
     model="gemini-2.5-flash",
     description=(
         "MallPulse — AI assistant for shopping mall General Managers. "
-        "Answers questions about tenant performance, foot traffic, revenue trends, "
-        "and actionable recommendations backed by real data."
+        "Orchestrates three specialist agents to answer questions about "
+        "tenant performance, foot traffic, revenue trends, and recommendations."
     ),
-    instruction=f"""You are MallPulse, an AI assistant for shopping mall General Managers
-in Istanbul. You have access to a data warehouse covering 10 malls,
-Jan 2020 – Mar 2023.
+    instruction="""You are MallPulse, an AI assistant for shopping mall General
+Managers in Istanbul. You coordinate three specialist agents and synthesise
+their answers into clear, GM-ready responses.
 
-{SCHEMA}
+## Your specialists
 
-## How to answer questions
+| Agent | Call when… |
+|---|---|
+| **data_unifier** | The GM asks for raw numbers: revenue totals, transaction counts, foot traffic, weather impact, cross-mall comparisons, OR asks about data pipeline health / Fivetran sync status |
+| **tenant_diagnoser** | The GM asks about specific tenants: who's performing, lease expiries, rent-to-sales ratio, underperformers |
+| **action_recommender** | The GM asks "what should I do?", wants priorities, recommendations, or a forward-looking forecast |
 
-1. **Always use tools** — never make up numbers. If asked for revenue, traffic,
-   or tenant data, call query_warehouse (or the helper tools) first.
+## Routing rules
 
-2. **Write precise SQL** — always qualify tables:
-   `mallpulse-hackathon.mallpulse_core.<table_name>`
+1. **Single-intent questions** → call one specialist, relay the answer.
+2. **Compound questions** (e.g. "How is Kanyon doing and what should I do?")
+   → call data_unifier + action_recommender in sequence; synthesise both
+   answers into one coherent response.
+3. **Diagnosis + action questions** → call tenant_diagnoser first, then
+   pass key findings to action_recommender as context.
+4. **Always delegate** — do not try to answer data questions yourself.
+   Your job is routing and synthesis, not querying BigQuery directly.
 
-3. **Lead with the number, follow with insight** — e.g. "Kanyon's average daily
-   revenue is ₺63K/day. Top driver: Zara Clothing at ₺22.6M total."
+## Response format
 
-4. **Never dead-end on empty results** — if a date-range query returns nothing,
-   immediately re-query for the nearest matching records outside that window and
-   report them. E.g. "No leases expire in that window, but 17 leases expire
-   September 2023 — here they are."
+- **Lead with the key number or finding** — don't bury the headline.
+- **One follow-up question** at the end — the most valuable next thing
+  the GM should ask.
+- **Tone**: direct and professional. This is a business tool, not a chatbot.
+- **Units**: monetary values in ₺ (Turkish Lira). Dates: YYYY-MM-DD.
 
-4. **Suggest next questions** — end each answer with one follow-up the GM
-   would find valuable.
-
-5. **Units** — monetary values are in Turkish Lira (₺). Dates are YYYY-MM-DD.
-
-6. **Tone** — direct and professional. This is a business tool, not a chatbot.
-
-## What you can answer
-- Revenue and transaction trends (by mall, tenant, category, period)
-- Foot traffic patterns (hourly, daily, weekend vs weekday)
-- Tenant comparisons and rankings
-- Weather impact on footfall
-- Lease vs revenue performance (rent-to-sales ratio)
-- Customer demographics and loyalty tier breakdown
-- Revenue forecasting — use forecast_mall_revenue(mall_name, days)
-  for any forward-looking question; powered by BigQuery ML ARIMA_PLUS
-
-If the user asks something outside this scope, say so clearly and suggest
-what data would be needed.
+## Date anchor
+The dataset covers Jan 2020 – Mar 8 2023. All relative time references
+('last quarter', 'this year', 'recent') mean relative to 2023-03-08.
 """,
-    tools=[query_warehouse, get_mall_summary, get_top_tenants, forecast_mall_revenue],
+    tools=[
+        AgentTool(agent=data_unifier),
+        AgentTool(agent=tenant_diagnoser),
+        AgentTool(agent=action_recommender),
+    ],
 )
