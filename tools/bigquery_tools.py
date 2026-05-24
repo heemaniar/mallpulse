@@ -157,6 +157,62 @@ def get_top_tenants(mall_name: str, metric: str = "revenue", limit: int = 10) ->
     return query_warehouse(sql)
 
 
+def get_weather_traffic_correlation(mall_name: str, year: int = 2022) -> str:
+    """Analyse how weather conditions correlate with daily foot traffic at a mall.
+
+    Buckets days by precipitation level (Dry / Light Rain / Heavy Rain) and
+    temperature band, then returns average, min, and max daily visits per bucket.
+    Use this for any question involving weather impact on foot traffic or sales.
+
+    Args:
+        mall_name: Full mall name, e.g. 'Kanyon' or 'Forum Istanbul'.
+        year: Calendar year to analyse (default 2022). Data covers 2020–2023.
+
+    Returns:
+        Markdown table of avg daily visits by weather type and temperature band.
+    """
+    sql = f"""
+    WITH daily AS (
+        SELECT
+            w.date,
+            SUM(f.estimated_visits) AS daily_visits,
+            w.temperature_c,
+            w.precipitation_mm,
+            CASE
+                WHEN w.precipitation_mm > 10 THEN 'Heavy Rain (>10mm)'
+                WHEN w.precipitation_mm > 2  THEN 'Light Rain (2-10mm)'
+                ELSE 'Dry (<2mm)'
+            END AS weather_type,
+            CASE
+                WHEN w.temperature_c < 5  THEN 'Cold (<5°C)'
+                WHEN w.temperature_c < 15 THEN 'Cool (5-15°C)'
+                WHEN w.temperature_c < 25 THEN 'Mild (15-25°C)'
+                ELSE 'Hot (>25°C)'
+            END AS temp_band
+        FROM `{PROJECT}.{DATASET}.fact_weather`   w
+        JOIN `{PROJECT}.{DATASET}.fact_foot_traffic` f
+            ON  w.mall_id = f.mall_id AND w.date = f.date
+        JOIN `{PROJECT}.{DATASET}.dim_mall` m
+            ON  w.mall_id = m.mall_id
+        WHERE LOWER(m.mall_name) = LOWER('{mall_name}')
+          AND EXTRACT(YEAR FROM w.date) = {year}
+        GROUP BY w.date, w.temperature_c, w.precipitation_mm, weather_type, temp_band
+    )
+    SELECT
+        weather_type,
+        temp_band,
+        COUNT(*)                       AS days,
+        ROUND(AVG(daily_visits))       AS avg_daily_visits,
+        ROUND(MIN(daily_visits))       AS min_visits,
+        ROUND(MAX(daily_visits))       AS max_visits
+    FROM daily
+    GROUP BY 1, 2
+    ORDER BY avg_daily_visits DESC
+    """
+    result = query_warehouse(sql)
+    return f"**Weather × Foot Traffic — {mall_name} ({year})**\n\n" + result
+
+
 def forecast_mall_revenue(mall_name: str, days: int = 30) -> str:
     """Forecast daily revenue for a mall using BigQuery ML ARIMA_PLUS model.
 
