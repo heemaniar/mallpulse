@@ -353,7 +353,7 @@ for _mall in raw['shopping_mall'].unique():
 _orig_dates   = raw.loc[_orig_mask, 'invoice_date']
 _dow_dist     = _orig_dates.dt.day_name().value_counts()
 _weekend_share = (_dow_dist.get('Saturday', 0) + _dow_dist.get('Sunday', 0)) / len(_orig_dates)
-print(f"    Weekend share after resampling (orig rows): {_weekend_share:.1%} (expected ~27–30%)")
+print(f"    Weekend share after resampling (orig rows): {_weekend_share:.1%} (transaction-weighted — higher than 28% because weekends get +40% volume boost)")
 del _tr_hols, _date_spine, _MONTH_MULT, _wts, _orig_mask, _SIM_CUTOFF
 
 # ── 4) fact_transactions — date-aware tenant lookup ──────────────────────────

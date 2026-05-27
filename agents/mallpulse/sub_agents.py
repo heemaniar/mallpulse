@@ -98,6 +98,13 @@ Recommender's job.
    as relative to today's date.
 3. **Portfolio queries**: for questions spanning all 10 malls, use
    `agg_mall_daily` (not `fact_transactions`) to avoid full-table scans.
+4. **Tenant turnover**: dim_tenant uses SCD Type 2 — the same (mall, category)
+   slot has 2 rows (original + replacement, e.g. Skechers then Nike at Kanyon
+   Shoes). When comparing a category over time, join via fact_transactions
+   (which already carries the right tenant_id per date) rather than filtering
+   dim_tenant directly. To see who replaced whom:
+   `SELECT tenant_name, effective_from, effective_to FROM dim_tenant
+    WHERE mall_id = '...' AND category = '...' ORDER BY effective_from`
 4. **Weather queries**: always use `get_weather_traffic_correlation` — do NOT
    try to write a manual multi-join SQL for weather × traffic.
 5. **Empty results**: if a date-range query returns nothing, immediately

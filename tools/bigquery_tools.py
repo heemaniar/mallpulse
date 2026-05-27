@@ -29,7 +29,14 @@ Dimension tables:
   dim_mall       : mall_id, mall_name, city, country, latitude, longitude,
                    gross_leasable_sqm, opened_year
   dim_tenant     : tenant_id, tenant_name, mall_id, category, subcategory,
-                   unit_size_sqm, store_format
+                   unit_size_sqm, store_format,
+                   effective_from (DATE), effective_to (DATE),
+                   is_replacement (BOOL)
+                   NOTE: same (mall, category) slot may have 2 rows — the
+                   original tenant and a replacement. Filter by effective_from/to
+                   to get who was active on a given date. Do NOT join dim_tenant
+                   directly on tenant_id for cross-period brand comparisons;
+                   use fact_transactions → dim_tenant with a date filter instead.
   dim_lease      : tenant_id, lease_start_date, lease_end_date,
                    monthly_base_rent, rent_pct_of_sales
   dim_date       : date, day_of_week, is_weekend, is_holiday, holiday_name,
