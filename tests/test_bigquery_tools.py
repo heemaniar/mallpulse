@@ -32,7 +32,11 @@ def _make_mock_row(values: dict) -> MagicMock:
 
 def _make_mock_iterator(rows: list, schema_names: list) -> MagicMock:
     """Return a MagicMock RowIterator with a .schema property."""
-    schema_fields = [MagicMock(name=n) for n in schema_names]
+    schema_fields = []
+    for n in schema_names:
+        f = MagicMock()
+        f.name = n  # set attribute directly — MagicMock(name=n) sets the mock's label, not .name
+        schema_fields.append(f)
     iterator = MagicMock()
     iterator.__iter__ = MagicMock(return_value=iter(rows))
     type(iterator).schema = PropertyMock(return_value=schema_fields)
