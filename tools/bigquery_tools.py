@@ -5,6 +5,8 @@ All tools return markdown tables (max 50 rows) or plain-text summaries
 so the LLM can reason directly over the results.
 """
 
+import re
+
 from google.cloud import bigquery
 
 PROJECT = "mallpulse-hackathon"
@@ -68,10 +70,11 @@ def query_warehouse(sql: str) -> str:
     Returns:
         Query results as a markdown table (up to 50 rows), or an error message.
     """
-    # Safety: block mutations
+    # Safety: block mutations — use word-boundary match so column aliases like
+    # "drop_count" don't trigger a false positive.
     normalised = sql.strip().upper()
     for keyword in ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "TRUNCATE", "MERGE"):
-        if keyword in normalised:
+        if re.search(rf"\b{keyword}\b", normalised):
             return f"Error: {keyword} statements are not allowed. Use SELECT only."
 
     try:
@@ -138,6 +141,7 @@ def get_top_tenants(mall_name: str, metric: str = "revenue", limit: int = 10) ->
         "avg_basket":   "AVG(d.avg_basket)",
     }
     order_col = col_map.get(metric.lower(), "SUM(d.revenue)")
+    limit = min(int(limit), 50)
 
     sql = f"""
     SELECT
@@ -150,6 +154,7 @@ def get_top_tenants(mall_name: str, metric: str = "revenue", limit: int = 10) ->
     JOIN `{PROJECT}.{DATASET}.dim_tenant` t USING (tenant_id)
     JOIN `{PROJECT}.{DATASET}.dim_mall`   m ON m.mall_id = t.mall_id
     WHERE LOWER(m.mall_name) = LOWER('{mall_name}')
+      AND d.date BETWEEN '2020-01-01' AND '2023-03-08'
     GROUP BY 1, 2
     ORDER BY {order_col} DESC
     LIMIT {limit}
@@ -240,6 +245,8 @@ def forecast_mall_revenue(mall_name: str, days: int = 30) -> str:
     if not id_rows:
         return f"Mall '{mall_name}' not found. Check spelling."
     mall_id = id_rows[0]["mall_id"]
+    # Don't quote integer IDs — avoids a type mismatch in BigQuery ML queries
+    mall_id_literal = mall_id if isinstance(mall_id, int) else f"'{mall_id}'"
 
     sql = f"""
     SELECT
@@ -251,7 +258,7 @@ def forecast_mall_revenue(mall_name: str, days: int = 30) -> str:
         MODEL `{PROJECT}.{DATASET}.revenue_forecast`,
         STRUCT({days} AS horizon, 0.90 AS confidence_level)
     )
-    WHERE mall_id = '{mall_id}'
+    WHERE mall_id = {mall_id_literal}
     ORDER BY forecast_timestamp
     """
     result = query_warehouse(sql)

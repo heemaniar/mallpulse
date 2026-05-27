@@ -10,14 +10,19 @@ MallPulse is a multi-agent AI system that turns raw retail data into instant, ac
 
 ## What it does
 
-| Ask this… | MallPulse answers with… |
-|---|---|
-| *"Who are the top 5 tenants at Forum Istanbul by revenue?"* | Ranked table with ₺ amounts and YoY change |
-| *"Which tenants have leases expiring in the next 6 months?"* | Risk-flagged list with rent-to-sales ratios |
-| *"Compare Zara across all 10 malls"* | Per-location revenue breakdown |
-| *"What was the rain impact on Kanyon foot traffic in 2022?"* | Correlation table across weather buckets |
-| *"Forecast next 30 days revenue for Kanyon"* | ARIMA-Plus daily forecast with confidence range |
-| *"Is the Fivetran data pipeline healthy?"* | Live sync status from Fivetran API |
+| Ask this… | MallPulse answers with… | Agent |
+|---|---|---|
+| *"How many transactions did Kanyon have in March 2023?"* | Exact count from BigQuery | Data Unifier |
+| *"Give me a summary of Forum Istanbul's revenue"* | Total, avg daily, peak, trading days | Data Unifier |
+| *"Which mall had the highest revenue in 2022?"* | Ranked portfolio table | Data Unifier |
+| *"What was the weather impact on foot traffic at Zorlu Center?"* | Visits by weather bucket + temperature band | Data Unifier |
+| *"Is the Fivetran data pipeline healthy?"* | Live sync status from Fivetran API | Data Unifier |
+| *"Who are the top 5 tenants at Istinye Park by revenue?"* | Ranked table with ₺ totals | Tenant Diagnoser |
+| *"Which tenants have leases expiring in the next 6 months?"* | Risk-flagged list with rent-to-sales ratios | Tenant Diagnoser |
+| *"How does Zara perform across all malls?"* | Per-location revenue breakdown | Tenant Diagnoser |
+| *"Forecast next 30 days revenue for Metrocity"* | ARIMA-Plus daily forecast with 90% CI | Action Recommender |
+| *"What are the top 3 actions I should take this week at Kanyon?"* | Prioritised actions backed by data | Action Recommender |
+| *"What is the customer age breakdown at Mall of Istanbul?"* | Demographics by age band | Data Unifier |
 
 ---
 
@@ -103,26 +108,40 @@ Translates data insights into a prioritised GM action list.
 
 ## Running locally
 
+**Prerequisites:** Python 3.11+, `gcloud` CLI, and a GCP project with BigQuery + Vertex AI enabled.
+
 ```bash
 git clone https://github.com/heemaniar/mallpulse.git
 cd mallpulse
 
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Fill in .env — BigQuery project, Postgres credentials, Fivetran API key
+# Edit .env — fill in GCP project, Postgres credentials, Fivetran API key
+
+# Authenticate to GCP (needed for BigQuery + Vertex AI)
+gcloud auth application-default login
+
+# Load data (first run only)
+python load_bigquery.py       # CSV → BigQuery
+python load_postgres.py       # CSV → Cloud SQL Postgres
 
 streamlit run app.py
 # → http://localhost:8501
 ```
 
-**Prerequisites:**
-- GCP project with BigQuery enabled and `mallpulse_core` dataset loaded
-- `gcloud auth application-default login` (for BigQuery + Vertex AI access)
-- Postgres database populated via `python load_postgres.py`
-- BigQuery loaded via `python load_bigquery.py`
+---
+
+## Running tests
+
+```bash
+pip install pytest          # first time only
+pytest -v                   # runs all 38 tests (no PYTHONPATH export needed)
+```
+
+All tests are offline unit tests that mock the BigQuery client — no GCP credentials required.
 
 ---
 
