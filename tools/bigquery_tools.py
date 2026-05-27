@@ -29,7 +29,14 @@ Dimension tables:
   dim_mall       : mall_id, mall_name, city, country, latitude, longitude,
                    gross_leasable_sqm, opened_year
   dim_tenant     : tenant_id, tenant_name, mall_id, category, subcategory,
-                   unit_size_sqm, store_format
+                   unit_size_sqm, store_format,
+                   effective_from (DATE), effective_to (DATE),
+                   is_replacement (BOOL)
+                   NOTE: same (mall, category) slot may have 2 rows — the
+                   original tenant and a replacement. Filter by effective_from/to
+                   to get who was active on a given date. Do NOT join dim_tenant
+                   directly on tenant_id for cross-period brand comparisons;
+                   use fact_transactions → dim_tenant with a date filter instead.
   dim_lease      : tenant_id, lease_start_date, lease_end_date,
                    monthly_base_rent, rent_pct_of_sales
   dim_date       : date, day_of_week, is_weekend, is_holiday, holiday_name,
@@ -53,7 +60,7 @@ ML model:
   Call forecast_mall_revenue(mall_name, days) — do NOT write raw ML.FORECAST SQL.
   Returns daily revenue forecast with 90% confidence intervals.
 
-Date range: 2020-01-01 through 2023-03-08
+Date range: 2020-01-01 through yesterday (data updated daily)
 Malls: Kanyon, Forum Istanbul, Metrocity, Metropol AVM, Istinye Park,
        Mall of Istanbul, Emaar Square Mall, Cevahir AVM, Viaport Outlet,
        Zorlu Center
@@ -154,7 +161,7 @@ def get_top_tenants(mall_name: str, metric: str = "revenue", limit: int = 10) ->
     JOIN `{PROJECT}.{DATASET}.dim_tenant` t USING (tenant_id)
     JOIN `{PROJECT}.{DATASET}.dim_mall`   m ON m.mall_id = t.mall_id
     WHERE LOWER(m.mall_name) = LOWER('{mall_name}')
-      AND d.date BETWEEN '2020-01-01' AND '2023-03-08'
+      AND d.date >= '2020-01-01'
     GROUP BY 1, 2
     ORDER BY {order_col} DESC
     LIMIT {limit}
@@ -171,7 +178,7 @@ def get_weather_traffic_correlation(mall_name: str, year: int = 2022) -> str:
 
     Args:
         mall_name: Full mall name, e.g. 'Kanyon' or 'Forum Istanbul'.
-        year: Calendar year to analyse (default 2022). Data covers 2020–2023.
+        year: Calendar year to analyse (default 2022). Data covers 2020 through yesterday.
 
     Returns:
         Markdown table of avg daily visits by weather type and temperature band.

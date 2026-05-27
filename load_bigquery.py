@@ -18,6 +18,18 @@ DATA      = Path("data")
 # Schema overrides for columns that need explicit types
 # (pandas infers bool as BOOL fine; dates need TIMESTAMP → DATE override)
 TABLE_SCHEMAS = {
+    "dim_tenant": [
+        bigquery.SchemaField("tenant_id",       "STRING"),
+        bigquery.SchemaField("tenant_name",     "STRING"),
+        bigquery.SchemaField("mall_id",         "STRING"),
+        bigquery.SchemaField("category",        "STRING"),
+        bigquery.SchemaField("subcategory",     "STRING"),
+        bigquery.SchemaField("unit_size_sqm",   "INTEGER"),
+        bigquery.SchemaField("store_format",    "STRING"),
+        bigquery.SchemaField("effective_from",  "DATE"),
+        bigquery.SchemaField("effective_to",    "DATE"),
+        bigquery.SchemaField("is_replacement",  "BOOL"),
+    ],
     "dim_date": [
         bigquery.SchemaField("date",         "DATE"),
         bigquery.SchemaField("day_of_week",  "STRING"),
@@ -149,3 +161,27 @@ for tbl, sql in AGG_SQLS.items():
     print(f"{rows:,} rows")
 
 print("\nDone! BigQuery mallpulse_core is ready.")
+
+# ── Retrain ARIMA_PLUS forecast model ────────────────────────────────────────
+# Must run AFTER agg_mall_daily is rebuilt above.
+# Training typically takes 3-8 minutes; the job blocks until complete.
+print("\nRetraining revenue_forecast ARIMA_PLUS model (this takes a few minutes)...")
+_arima_sql = f"""
+    CREATE OR REPLACE MODEL `{dataset_ref}.revenue_forecast`
+    OPTIONS (
+        model_type             = 'ARIMA_PLUS',
+        time_series_timestamp_col = 'date',
+        time_series_data_col   = 'total_revenue',
+        time_series_id_col     = 'mall_id',
+        auto_arima             = TRUE,
+        data_frequency         = 'DAILY',
+        decompose_time_series  = TRUE,
+        holiday_region         = 'TR'
+    )
+    AS
+    SELECT mall_id, date, total_revenue
+    FROM `{dataset_ref}.agg_mall_daily`
+    WHERE total_revenue > 0
+"""
+client.query(_arima_sql).result()   # blocks until training completes
+print("  revenue_forecast model retrained.")
