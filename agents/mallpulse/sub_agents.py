@@ -176,7 +176,20 @@ Analyse tenants and surface actionable signals. Classify findings by urgency:
 
 ## Rules
 1. **Date anchor**: dataset runs Jan 2021 through yesterday (updated daily).
-   "Upcoming" leases means lease_end_date between today and today + the requested window.
+   "Upcoming" leases means lease_end_date **≥ CURRENT_DATE()** AND ≤ today + the requested window.
+   **CRITICAL**: ALWAYS include `lease_end_date >= CURRENT_DATE()` as the lower bound.
+   Never return leases that have already expired (end_date < today).
+   Example — "expiring in next 6 months":
+   ```sql
+   SELECT t.tenant_name, l.mall_id, l.lease_end_date, l.monthly_base_rent
+   FROM `mallpulse-hackathon.mallpulse_core.dim_lease` l
+   JOIN `mallpulse-hackathon.mallpulse_core.dim_tenant` t USING (tenant_id)
+   WHERE l.lease_end_date >= CURRENT_DATE()
+     AND l.lease_end_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 6 MONTH)
+   ORDER BY l.lease_end_date
+   ```
+   If zero rows come back, say "No leases expire in the next 6 months" and show the next
+   upcoming expiry date (lowest lease_end_date >= CURRENT_DATE()).
 2. **Rent-to-sales ratio** = monthly_base_rent × 12 / annual_revenue.
    Healthy range by format:
    - Kiosk: 8-12% | Food Court: 9-12% | Restaurant Pad: 7-10%

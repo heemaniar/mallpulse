@@ -332,9 +332,11 @@ if alerts:
 
 st.divider()
 
+_AVATAR = {"user": "🧑‍💼", "assistant": "🏙️"}
+
 # Render history
 for msg in st.session_state.get("messages", []):
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"], avatar=_AVATAR.get(msg["role"])):
         st.markdown(msg["content"])
 
 # Resolve prompt — chat input OR sidebar example button
@@ -351,10 +353,10 @@ if prompt:
     if not msgs or msgs[-1].get("content") != prompt or msgs[-1].get("role") != "user":
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar="🧑‍💼"):
         st.markdown(prompt)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="🏙️"):
         status_slot = st.empty()
         text_slot = st.empty()
         full_text = ""
