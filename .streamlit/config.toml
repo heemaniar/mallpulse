@@ -1,9 +1,9 @@
 [theme]
-primaryColor     = "#1A73E8"
-backgroundColor  = "#0F1117"
-secondaryBackgroundColor = "#1E2130"
-textColor        = "#FAFAFA"
-font             = "sans serif"
+primaryColor             = "#3C3489"
+backgroundColor          = "#0D0B1E"
+secondaryBackgroundColor = "#1A1735"
+textColor                = "#F4F3FF"
+font                     = "sans serif"
 
 [server]
 headless = true

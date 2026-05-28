@@ -228,18 +228,18 @@ def get_weather_traffic_correlation(mall_name: str, year: int = 2022) -> str:
 def forecast_mall_revenue(mall_name: str, days: int = 30) -> str:
     """Forecast daily revenue for a mall using BigQuery ML ARIMA_PLUS model.
 
-    Uses a model trained on historical agg_mall_daily data.
-    Returns a markdown table with forecast dates, predicted revenue,
-    and 90% confidence interval bounds.
+    Checks the forecast_cache table first (updated nightly by a scheduled query)
+    to avoid re-running the ARIMA model on every request. Falls back to the live
+    ML.FORECAST call if the cache is stale or missing.
 
     Args:
         mall_name: Full mall name, e.g. 'Kanyon' or 'Forum Istanbul'.
-        days: Number of days to forecast ahead (default 30, max 90).
+        days: Number of days to forecast ahead (default 30, max 30).
 
     Returns:
         Markdown table of forecasted daily revenue with confidence bounds.
     """
-    days = min(int(days), 90)
+    days = min(int(days), 30)
 
     # Resolve mall_name → mall_id first
     id_sql = f"""
@@ -252,9 +252,25 @@ def forecast_mall_revenue(mall_name: str, days: int = 30) -> str:
     if not id_rows:
         return f"Mall '{mall_name}' not found. Check spelling."
     mall_id = id_rows[0]["mall_id"]
-    # Don't quote integer IDs — avoids a type mismatch in BigQuery ML queries
     mall_id_literal = mall_id if isinstance(mall_id, int) else f"'{mall_id}'"
 
+    # ── Try cache first (updated nightly — avoids 20-30s ARIMA re-run) ────────
+    cache_sql = f"""
+    SELECT forecast_date, forecast_revenue, lower_90, upper_90
+    FROM `{PROJECT}.{DATASET}.forecast_cache`
+    WHERE mall_id = {mall_id_literal}
+      AND DATE(cached_at) = CURRENT_DATE()
+    ORDER BY forecast_date
+    LIMIT {days}
+    """
+    try:
+        cache_result = query_warehouse(cache_sql)
+        if "BigQuery error" not in cache_result and "no rows" not in cache_result.lower():
+            return f"**Revenue forecast for {mall_name} — next {days} days** _(cached)_\n\n" + cache_result
+    except Exception:
+        pass  # cache miss — fall through to live model
+
+    # ── Live ARIMA forecast (fallback) ────────────────────────────────────────
     sql = f"""
     SELECT
         DATE(forecast_timestamp)                    AS forecast_date,

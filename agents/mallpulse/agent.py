@@ -23,6 +23,7 @@ Deploy to Vertex AI Agent Engine:
     python deploy.py
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -41,11 +42,14 @@ from agents.mallpulse.sub_agents import (
     action_recommender,
 )
 
+# Gemini 3 Flash Preview (global location) — falls back to 2.5 Flash via env var
+_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+
 root_agent = Agent(
     name="mallpulse",
-    model="gemini-2.5-flash",
+    model=_MODEL,
     generate_content_config=GenerateContentConfig(
-        thinking_config=ThinkingConfig(thinking_budget=1024)
+        thinking_config=ThinkingConfig(thinking_budget=8096)
     ),
     description=(
         "MallPulse — AI assistant for shopping mall General Managers. "
@@ -84,7 +88,7 @@ their answers into clear, GM-ready responses.
 - **Units**: monetary values in ₺ (Turkish Lira). Dates: YYYY-MM-DD.
 
 ## Date anchor
-The dataset covers Jan 2020 through yesterday and is updated daily.
+The dataset covers Jan 2021 through yesterday and is updated daily.
 Resolve relative time references ('last quarter', 'this year', 'recent')
 relative to today's date.
 """,

@@ -22,8 +22,11 @@ from google.adk.tools.mcp_tool.mcp_toolset import (
 )
 from google.genai.types import GenerateContentConfig, ThinkingConfig
 
+# Gemini 3 Flash Preview (global) — set GEMINI_MODEL=gemini-2.5-flash to fall back
+_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+
 _FAST_CONFIG = GenerateContentConfig(
-    thinking_config=ThinkingConfig(thinking_budget=1024)
+    thinking_config=ThinkingConfig(thinking_budget=8096)
 )
 
 from tools.bigquery_tools import (
@@ -78,7 +81,7 @@ fivetran_mcp = McpToolset(
 
 data_unifier = Agent(
     name="data_unifier",
-    model="gemini-2.5-flash",
+    model=_MODEL,
     generate_content_config=_FAST_CONFIG,
     description=(
         "Retrieves and presents shopping mall data: revenue, transactions, "
@@ -99,7 +102,7 @@ Recommender's job.
 
 ## Rules
 1. **Always query first** — never invent numbers.
-2. **Date anchor**: the dataset runs Jan 2020 through yesterday and is
+2. **Date anchor**: the dataset runs Jan 2021 through yesterday and is
    updated daily. Treat 'recent', 'last quarter', 'this year', 'last month'
    as relative to today's date.
 3. **Portfolio queries**: for questions spanning all 10 malls, use
@@ -152,7 +155,7 @@ Recommender's job.
 
 tenant_diagnoser = Agent(
     name="tenant_diagnoser",
-    model="gemini-2.5-flash",
+    model=_MODEL,
     generate_content_config=_FAST_CONFIG,
     description=(
         "Diagnoses tenant health: performance rankings, lease expiry risk, "
@@ -172,7 +175,7 @@ Analyse tenants and surface actionable signals. Classify findings by urgency:
 - 🟢 **Healthy**: stable or growing revenue, lease well inside term
 
 ## Rules
-1. **Date anchor**: dataset is current through yesterday (updated daily).
+1. **Date anchor**: dataset runs Jan 2021 through yesterday (updated daily).
    "Upcoming" leases means lease_end_date between today and today + the requested window.
 2. **Rent-to-sales ratio** = monthly_base_rent × 12 / annual_revenue.
    Healthy range by format:
@@ -204,7 +207,7 @@ Analyse tenants and surface actionable signals. Classify findings by urgency:
 
 action_recommender = Agent(
     name="action_recommender",
-    model="gemini-2.5-flash",
+    model=_MODEL,
     generate_content_config=_FAST_CONFIG,
     description=(
         "Generates concrete, prioritised action items for mall GMs based on "
@@ -239,7 +242,7 @@ Structure each response as:
 ## Rules
 1. **Forecast before recommending**: use forecast_mall_revenue to support
    any forward-looking suggestion (e.g. "revenue is projected to grow…").
-2. **Date anchor**: dataset is current through yesterday (updated daily).
+2. **Date anchor**: dataset runs Jan 2021 through yesterday (updated daily).
    Use today's date as "now" for all relative time references.
 3. **Don't over-forecast**: the ARIMA model shows DOW seasonality and
    monthly patterns — present forecasts as daily baselines with ranges,

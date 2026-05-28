@@ -17,6 +17,7 @@ The UI talks directly to the ADK multi-agent system:
 import asyncio
 import os
 import sys
+import uuid
 from pathlib import Path
 
 import streamlit as st
@@ -34,6 +35,7 @@ sys.path.insert(0, str(_ROOT / "agents"))
 load_dotenv(_ROOT / ".env")
 
 from agents.mallpulse.agent import root_agent  # noqa: E402 (after path setup)
+from tools.bigquery_tools import query_warehouse  # noqa: E402
 
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(
@@ -42,6 +44,19 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Custom fonts + CSS ────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+h1, h2, h3 { font-family: 'DM Sans', sans-serif; font-weight: 700; }
+.stButton > button[kind="primary"] { background-color: #3C3489 !important; border: none; }
+.stButton > button[kind="primary"]:hover { background-color: #534AB7 !important; }
+.alert-card { background: #1A1735; border-left: 4px solid #D85A30; padding: 10px 14px;
+              border-radius: 6px; margin-bottom: 8px; font-family: 'Inter', sans-serif; }
+</style>
+""", unsafe_allow_html=True)
 
 # ── Example prompts ───────────────────────────────────────────────────────────
 EXAMPLE_PROMPTS = [
@@ -69,19 +84,65 @@ def _get_runner() -> tuple[Runner, InMemorySessionService]:
 runner, _svc = _get_runner()
 
 
+def _get_user_id() -> str:
+    """Return a unique user ID per browser session (multi-user safe)."""
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = str(uuid.uuid4())[:8]
+    return st.session_state.user_id
+
+
 def _get_session_id() -> str:
     """Return the current user's ADK session ID, creating one on first visit."""
     if "adk_session_id" not in st.session_state:
-        session = asyncio.run(_svc.create_session(app_name="mallpulse", user_id="gm"))
+        session = asyncio.run(
+            _svc.create_session(app_name="mallpulse", user_id=_get_user_id())
+        )
         st.session_state.adk_session_id = session.id
         st.session_state.messages = []
     return st.session_state.adk_session_id
 
 
+# ── Proactive anomaly alerts (cached 1 hour) ──────────────────────────────────
+@st.cache_data(ttl=3600)
+def _get_anomaly_alerts() -> list[str]:
+    """Return tenants with rent-to-sales ratio > 10% in the last 30 days."""
+    try:
+        result = query_warehouse("""
+        SELECT
+            t.tenant_name,
+            m.mall_name,
+            ROUND(l.monthly_base_rent * 12 / NULLIF(SUM(d.revenue), 0) * 100, 1) AS rent_to_sales_pct
+        FROM `mallpulse-hackathon.mallpulse_core.dim_lease` l
+        JOIN `mallpulse-hackathon.mallpulse_core.dim_tenant` t ON t.tenant_id = l.tenant_id
+        JOIN `mallpulse-hackathon.mallpulse_core.dim_mall`   m ON m.mall_id = t.mall_id
+        JOIN `mallpulse-hackathon.mallpulse_core.agg_tenant_daily` d ON d.tenant_id = t.tenant_id
+        WHERE d.date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+          AND t.effective_to IS NULL
+        GROUP BY t.tenant_name, m.mall_name, l.monthly_base_rent
+        HAVING rent_to_sales_pct > 10
+        ORDER BY rent_to_sales_pct DESC
+        LIMIT 5
+        """)
+        if "BigQuery error" in result or "no rows" in result.lower():
+            return []
+        alerts = []
+        for line in result.strip().split("\n")[2:]:
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 3:
+                alerts.append(
+                    f"🚨 **{parts[0]}** at {parts[1]} — rent-to-sales {parts[2]}%"
+                )
+        return alerts
+    except Exception:
+        return []
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _reset_conversation() -> None:
     """Clear chat history and start a fresh ADK session."""
-    session = asyncio.run(_svc.create_session(app_name="mallpulse", user_id="gm"))
+    session = asyncio.run(
+        _svc.create_session(app_name="mallpulse", user_id=_get_user_id())
+    )
     st.session_state.adk_session_id = session.id
     st.session_state.messages = []
     st.rerun()
@@ -135,6 +196,14 @@ st.caption(
     "Ask about tenant performance, revenue trends, lease health, "
     "weather impact, forecasts, or Fivetran pipeline status."
 )
+
+# ── Proactive anomaly alerts ──────────────────────────────────────────────────
+alerts = _get_anomaly_alerts()
+if alerts:
+    st.markdown("**⚠️ Alerts — High rent-to-sales tenants (last 30 days)**")
+    for alert in alerts:
+        st.markdown(f'<div class="alert-card">{alert}</div>', unsafe_allow_html=True)
+
 st.divider()
 
 # Render history
@@ -150,7 +219,12 @@ if not prompt and "pending_prompt" in st.session_state:
 # Handle new message
 if prompt:
     _get_session_id()  # ensure session exists before rendering
-    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    # Guard against double-render on sidebar button click mid-conversation
+    msgs = st.session_state.get("messages", [])
+    if not msgs or msgs[-1].get("content") != prompt or msgs[-1].get("role") != "user":
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
     with st.chat_message("user"):
         st.markdown(prompt)
 
@@ -161,7 +235,7 @@ if prompt:
 
         try:
             for event in runner.run(
-                user_id="gm",
+                user_id=_get_user_id(),
                 session_id=st.session_state.adk_session_id,
                 new_message=Content(parts=[Part(text=prompt)], role="user"),
             ):
@@ -179,7 +253,15 @@ if prompt:
                             text_slot.markdown(full_text + " ▌")
 
         except Exception as exc:
-            full_text = f"⚠️ Something went wrong: {exc}"
+            err = str(exc).lower()
+            if "quota" in err or "rate" in err:
+                full_text = "⚠️ Query limit reached — please try again in a moment."
+            elif "bigquery" in err or "google.api" in err:
+                full_text = "⚠️ Data warehouse is temporarily unavailable. Historical data is still intact."
+            elif "fivetran" in err:
+                full_text = "⚠️ Fivetran pipeline is unreachable. BigQuery data from the last sync is still available."
+            else:
+                full_text = "⚠️ Something went wrong. Try rephrasing your question."
 
         status_slot.empty()
         text_slot.markdown(full_text or "_(No response — try rephrasing your question.)_")
