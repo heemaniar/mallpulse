@@ -54,11 +54,11 @@ st.html("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0" rel="stylesheet">
 <style>
 /* ── Typography ─────────────────────────────────────────────────────────── */
-html, body, [class*="css"], p, span, div, li, td, th, label,
+/* NOTE: exclude <span> — Streamlit uses Material Symbols spans for expander
+   icons; forcing Inter on them corrupts glyph rendering (shows raw ligature text) */
+html, body, [class*="css"], p, div, li, td, th, label,
 .stMarkdown, .stChatMessage { font-family:'Inter',-apple-system,sans-serif !important; }
 h1,h2,h3,h4,h5,h6 { font-family:'Plus Jakarta Sans',sans-serif !important;
     font-weight:700 !important; color:#1A1735 !important; }
@@ -404,6 +404,9 @@ _AVATAR = {"user": "🧑‍💼", "assistant": "🌉"}
 for msg in st.session_state.get("messages", []):
     with st.chat_message(msg["role"], avatar=_AVATAR.get(msg["role"])):
         st.markdown(msg["content"])
+        if msg["role"] == "assistant" and msg.get("sql"):
+            with st.expander("Show SQL query", expanded=False):
+                st.code(msg["sql"], language="sql")
 
 # Resolve prompt — chat input OR sidebar example button
 prompt = st.chat_input("Ask about Valley Fair, Stanford, Santana Row…")
@@ -426,6 +429,7 @@ if prompt:
         status_slot = st.empty()
         text_slot = st.empty()
         full_text = ""
+        last_sql = ""
 
         try:
             for event in runner.run(
@@ -433,11 +437,14 @@ if prompt:
                 session_id=st.session_state.adk_session_id,
                 new_message=Content(parts=[Part(text=prompt)], role="user"),
             ):
-                # Surface tool calls as live status
+                # Surface tool calls as live status + capture SQL
                 calls = event.get_function_calls() if hasattr(event, "get_function_calls") else []
                 if calls:
                     tool_names = ", ".join(f"`{c.name}`" for c in calls)
                     status_slot.caption(f"⚙️ Calling {tool_names}…")
+                    for call in calls:
+                        if call.name == "query_warehouse" and hasattr(call, "args"):
+                            last_sql = (call.args or {}).get("sql", "") or str(call.args)
 
                 # Stream partial text as it arrives
                 if event.content and event.content.parts:
@@ -460,4 +467,16 @@ if prompt:
         status_slot.empty()
         text_slot.markdown(full_text or "_(No response — try rephrasing your question.)_")
 
-    st.session_state.messages.append({"role": "assistant", "content": full_text})
+        if last_sql:
+            with st.expander("Show SQL query", expanded=False):
+                st.code(last_sql, language="sql")
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": full_text,
+        "sql": last_sql,
+    })
+
+# Re-render SQL expanders for history messages that have SQL
+for msg in st.session_state.get("messages", []):
+    pass  # expanders are rendered inline above; history re-render is handled at top
