@@ -174,6 +174,22 @@ hr { border-color:rgba(83,74,183,0.18) !important; margin:0.6rem 0 !important; }
 .tag-coral { color:#D85A30; font-weight:600; }
 .tag-purple{ color:#534AB7; font-weight:600; }
 
+/* ── Toggle — make visible on dark sidebar ──────────────────────────────── */
+[data-testid="stSidebar"] [data-testid="stToggle"] label {
+    color:rgba(244,243,255,0.88) !important;
+}
+[data-testid="stSidebar"] [data-testid="stToggle"] p {
+    color:rgba(244,243,255,0.88) !important;
+}
+[data-testid="stSidebar"] [role="switch"] {
+    background-color:rgba(83,74,183,0.5) !important;
+    border:1px solid rgba(83,74,183,0.8) !important;
+}
+[data-testid="stSidebar"] [role="switch"][aria-checked="true"] {
+    background-color:#1D9E75 !important;
+    border-color:#1D9E75 !important;
+}
+
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width:5px; height:5px; }
 ::-webkit-scrollbar-track { background:#EEEDFE; }
@@ -254,7 +270,8 @@ def _get_anomaly_alerts() -> list[str]:
         JOIN `mallpulse-hackathon.goldengate_core.dim_mall`   m ON m.mall_id = t.mall_id
         JOIN `mallpulse-hackathon.goldengate_core.dim_lease`  l ON l.tenant_id = a.tenant_id
         WHERE t.effective_to >= CURRENT_DATE()
-          AND a.annual_rev >= 200000
+          AND a.annual_rev >= 50000
+          AND rent_to_sales_pct > 12
         ORDER BY rent_to_sales_pct DESC
         LIMIT 5
         """)

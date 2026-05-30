@@ -148,6 +148,11 @@ MALL_REV_MULT = {
     "m13": 1.4,   # SF Premium Outlets — premium discount
 }
 
+# Dataset scale factor — keeps the demo dataset at ~1.5M rows.
+# Apply to BOTH transactions AND rents so rent-to-sales ratios stay realistic.
+_TXN_SCALE  = 0.01   # 1% of real-world transaction volume
+_RENT_SCALE = 0.01   # same factor on monthly rent → realistic rent-to-sales %
+
 # Is this mall open-air or enclosed?
 MALL_OPENAIR = {"m02","m03","m06","m10","m13"}
 
@@ -513,7 +518,7 @@ for (tid, brand_idx, mall_id) in ASSIGNMENTS:
     lease_start = eff_from
     lease_end   = eff_to + timedelta(days=365)
     rent_mult   = MALL_REV_MULT[mall_id]
-    actual_rent = monthly_rent * max(0.7, min(1.5, rent_mult * random.uniform(0.85, 1.15)))
+    actual_rent = monthly_rent * max(0.7, min(1.5, rent_mult * random.uniform(0.85, 1.15))) * _RENT_SCALE
     dim_lease_rows.append({
         "tenant_id":         tid,
         "lease_start_date":  lease_start,
@@ -540,7 +545,7 @@ for (tid, brand_idx, mall_id) in ASSIGNMENTS:
             "effective_to":   ACTIVE_UNTIL,
             "is_replacement": True,
         })
-        r_actual_rent = rrent * max(0.7, min(1.5, rent_mult * random.uniform(0.85, 1.15)))
+        r_actual_rent = rrent * max(0.7, min(1.5, rent_mult * random.uniform(0.85, 1.15))) * _RENT_SCALE
         dim_lease_rows.append({
             "tenant_id":         r_tid,
             "lease_start_date":  r_from,
@@ -712,10 +717,6 @@ def _seasonal_mult(d: date) -> float:
 # 8. FACT_TRANSACTIONS
 # ─────────────────────────────────────────────────────────────────────────────
 print("Building fact_transactions (this takes 1-2 minutes)...")
-
-# Demo dataset scaling: base_txns in the catalog are real-world volumes.
-# Scale down to ~1.5M rows total — enough for BigQuery analytics demos.
-_TXN_SCALE = 0.01  # 1% of real-world volume ≈ 1.5M transactions
 
 # Build customer pool
 NUM_CUSTOMERS = 45_000

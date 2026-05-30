@@ -236,7 +236,7 @@ def forecast_mall_revenue(mall_name: str, days: int = 30) -> str:
         MODEL `{PROJECT}.{DATASET}.revenue_forecast`,
         STRUCT({days} AS horizon, 0.9 AS confidence_level)
     ) f
-    JOIN `{PROJECT}.{DATASET}.dim_mall` m ON m.mall_id = f.time_series_id
+    JOIN `{PROJECT}.{DATASET}.dim_mall` m ON m.mall_id = f.mall_id
     WHERE LOWER(m.mall_name) LIKE LOWER('%{mall_name}%')
     ORDER BY forecast_date
     LIMIT {days}

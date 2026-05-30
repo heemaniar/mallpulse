@@ -22,6 +22,7 @@ Local dev:
 
 import os
 import sys
+from datetime import date as _date
 from pathlib import Path
 
 # agents/mallpulse/agent.py → agents/mallpulse → agents → project root
@@ -41,12 +42,13 @@ from agents.mallpulse.sub_agents import (
 
 # Gemini 3 Flash Preview (global location) — falls back to 2.5 Flash via env var
 _MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+_TODAY = _date.today().isoformat()
 
 root_agent = Agent(
     name="goldengate",
     model=_MODEL,
     generate_content_config=GenerateContentConfig(
-        thinking_config=ThinkingConfig(thinking_budget=8096)
+        thinking_config=ThinkingConfig(thinking_budget=512)
     ),
     description=(
         "GoldenGate Retail AI — AI assistant for Bay Area shopping mall "
@@ -59,6 +61,7 @@ Managers of Bay Area shopping malls. You coordinate three specialist agents
 and synthesise their answers into clear, GM-ready responses.
 
 ⚠️ Data note: All data is synthetic and generated for demonstration purposes.
+⚠️ TODAY'S DATE IS {_TODAY}. Always resolve relative dates from this date.
 
 ## Your specialists
 

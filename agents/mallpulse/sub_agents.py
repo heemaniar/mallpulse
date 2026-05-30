@@ -11,6 +11,7 @@ Day 9: data_unifier now includes the official Fivetran MCP server toolset
 
 import os
 import sys
+from datetime import date as _date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,9 +26,14 @@ from google.genai.types import GenerateContentConfig, ThinkingConfig
 # Gemini 3 Flash Preview (global) — set GEMINI_MODEL=gemini-2.5-flash to fall back
 _MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
 
-_FAST_CONFIG = GenerateContentConfig(
-    thinking_config=ThinkingConfig(thinking_budget=8096)
-)
+# Today's date injected at startup — agents must use this, not model knowledge cutoff
+_TODAY = _date.today().isoformat()  # e.g. "2026-05-29"
+
+# Speed configs:
+# - Sub-agents doing SQL lookup don't need heavy reasoning → thinking_budget=0
+# - Action recommender needs light reasoning for prioritisation → 1024
+_NO_THINK  = GenerateContentConfig(thinking_config=ThinkingConfig(thinking_budget=0))
+_LITE_THINK = GenerateContentConfig(thinking_config=ThinkingConfig(thinking_budget=1024))
 
 from tools.bigquery_tools import (
     SCHEMA,
@@ -82,7 +88,7 @@ fivetran_mcp = McpToolset(
 data_unifier = Agent(
     name="data_unifier",
     model=_MODEL,
-    generate_content_config=_FAST_CONFIG,
+    generate_content_config=_NO_THINK,
     description=(
         "Retrieves and presents Bay Area mall data: revenue, transactions, "
         "foot traffic, weather impact, cross-mall comparisons, AND live Fivetran "
@@ -101,9 +107,10 @@ Recommender's job.
 
 ## Rules
 1. **Always query first** — never invent numbers.
-2. **Date anchor**: the dataset runs Jan 2020 through yesterday and is
-   updated daily. Treat 'recent', 'last quarter', 'this year', 'last month'
-   as relative to today's date.
+2. **Date anchor**: TODAY IS {_TODAY}. The dataset runs Jan 2020 through
+   yesterday and is updated daily. ALL relative dates ('last month',
+   'last quarter', 'this year', 'recent') MUST be calculated from {_TODAY}.
+   NEVER use a date earlier than what DATE_SUB(CURRENT_DATE(), ...) returns.
 3. **Portfolio queries**: for questions spanning all 13 malls, use
    `agg_mall_daily` (not `fact_transactions`) to avoid full-table scans.
 4. **Cross-mall brand queries** (e.g. "How does lululemon perform across all malls?"):
@@ -148,7 +155,7 @@ Recommender's job.
 tenant_diagnoser = Agent(
     name="tenant_diagnoser",
     model=_MODEL,
-    generate_content_config=_FAST_CONFIG,
+    generate_content_config=_NO_THINK,
     description=(
         "Diagnoses Bay Area mall tenant health: performance rankings, lease expiry risk, "
         "rent-to-sales ratio, and underperformer flags. "
@@ -167,7 +174,8 @@ Analyse tenants and surface actionable signals. Classify findings by urgency:
 - 🟢 **Healthy**: stable or growing revenue, lease well inside term
 
 ## Rules
-1. **Date anchor**: dataset runs Jan 2020 through yesterday (updated daily).
+1. **Date anchor**: TODAY IS {_TODAY}. Dataset runs Jan 2020 through yesterday.
+   ALL relative dates MUST be calculated from {_TODAY} using CURRENT_DATE().
    "Upcoming" leases = lease_end_date >= CURRENT_DATE() AND <= today + window.
    **ALWAYS include** `lease_end_date >= CURRENT_DATE()` as the lower bound.
    Example — "expiring in next 6 months":
@@ -211,7 +219,7 @@ Analyse tenants and surface actionable signals. Classify findings by urgency:
 action_recommender = Agent(
     name="action_recommender",
     model=_MODEL,
-    generate_content_config=_FAST_CONFIG,
+    generate_content_config=_LITE_THINK,
     description=(
         "Generates concrete, prioritised action items for Bay Area mall GMs based on "
         "revenue forecasts, tenant diagnosis, and portfolio context. "
@@ -245,8 +253,9 @@ Structure each response as:
 ## Rules
 1. **Forecast before recommending**: use forecast_mall_revenue to support
    any forward-looking suggestion (e.g. "revenue is projected to grow…").
-2. **Date anchor**: dataset runs Jan 2020 through yesterday (updated daily).
-   Use today's date as "now" for all relative time references.
+2. **Date anchor**: TODAY IS {_TODAY}. Dataset runs Jan 2020 through yesterday.
+   Use {_TODAY} as "now" for ALL relative time references. Never reference
+   dates in 2024 or earlier as "current" — the data goes through 2026.
 3. **Don't over-forecast**: the ARIMA model shows DOW seasonality and
    monthly patterns — present forecasts as daily baselines with ranges,
    not as guaranteed numbers.
